@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XIAO Time Sync</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+        }
+        h1 { color: #00e5ff; margin-bottom: 10px; }
+        button {
+            padding: 15px 30px;
+            font-size: 18px;
+            margin: 10px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        #connectBtn { background-color: #00e5ff; color: #000; }
+        #syncBtn { background-color: #00c853; color: #000; }
+        button:disabled { background-color: #555; color: #aaa; cursor: not-allowed; }
+        #status {
+            margin-top: 20px;
+            font-size: 16px;
+            color: #bbbbbb;
+            max-width: 300px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>XIAO Clock Sync</h1>
+    <p>Sync your XIAO ESP32-S3 display with your device's time.</p>
+    
+    <button id="connectBtn">1. Connect to XIAO</button>
+    <button id="syncBtn" disabled>2. Sync Time</button>
+    
+    <div id="status">Status: Disconnected</div>
+
+    <script>
+        // Must match the UUIDs in the Arduino Sketch
+        const SERVICE_UUID = '12345678-1234-1234-1234-123456789abc';
+        const CHAR_UUID = '87654321-4321-4321-4321-cba987654321';
+        
+        let characteristic;
+        const statusEl = document.getElementById('status');
+        const connectBtn = document.getElementById('connectBtn');
+        const syncBtn = document.getElementById('syncBtn');
+
+        connectBtn.addEventListener('click', async () => {
+            try {
+                statusEl.innerText = 'Status: Scanning for XIAO...';
+                // Request device filtering by our specific Service UUID
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: [SERVICE_UUID] }]
+                });
+                
+                statusEl.innerText = 'Status: Connecting...';
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService(SERVICE_UUID);
+                characteristic = await service.getCharacteristic(CHAR_UUID);
+                
+                statusEl.innerText = 'Status: Connected! Ready to sync.';
+                syncBtn.disabled = false;
+                
+                // Listen for disconnection
+                device.addEventListener('gattserverdisconnected', onDisconnected);
+            } catch (err) {
+                console.error(err);
+                statusEl.innerText = 'Error: ' + err.message;
+            }
+        });
+
+        syncBtn.addEventListener('click', async () => {
+            if (!characteristic) return;
+            
+            // Get current Unix Epoch time in seconds
+            const epoch = Math.floor(Date.now() / 1000);
+            
+            // Convert to 4-byte ArrayBuffer (Big-Endian to match Arduino)
+            const buffer = new ArrayBuffer(4);
+            const view = new DataView(buffer);
+            view.setUint32(0, epoch, false); 
+            
+            try {
+                statusEl.innerText = 'Status: Sending time...';
+                await characteristic.writeValueWithResponse(buffer);
+                statusEl.innerText = `Status: Time Synced! (Epoch: ${epoch})`;
+            } catch (err) {
+                statusEl.innerText = 'Sync Error: ' + err.message;
+            }
+        });
+
+        function onDisconnected() {
+            statusEl.innerText = 'Status: Disconnected';
+            syncBtn.disabled = true;
+            characteristic = null;
+        }
+    </script>
+</body>
+</html>
